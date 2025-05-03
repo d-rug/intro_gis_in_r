@@ -1,2 +1,2 @@
-# intro_gis_in_r
+# Intro to GIS in R
 An introduction to doing Geographic Information Science in R
