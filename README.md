@@ -31,14 +31,6 @@ with RStudio, but you can accomplish the same thing using the R GUI.
       e. Navigate to the Files tab in RStudio and click "New Folder", and name
     that folder "data".
       f. Navigate inside that folder and create another folder named "raw".
-  4. Project Setup for "Version Control"
-      a. Select "Git".
-      b. Click on the green "Code" button and copy the URL.
-      c. Paste the URL into the Repository URL box.
-      d. Copy the repository name and paste it into the project directory name
-      box.
-      e. Browse and select the directory where you want to store this project.
-      f. Click "Create Project".
 
 Next we need to install several packages. We can do that by running the
 following code in the R Console.
