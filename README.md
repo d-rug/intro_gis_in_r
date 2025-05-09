@@ -95,7 +95,7 @@ Now you are ready to start coding! All of the code can be found in
 `R/intro_gis.R`. Additionally Elise will save the code she writes during the
 workshop as `R/intro_gis_live.R` and upload it after the workshop.
 
-> [!IMPORTANT]
+> [!WARNING]
 >
 > Originally, the primary tool for working with raster data was a package 
 > called `raster` and the primary tools for working with vector data were contained in the
