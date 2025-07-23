@@ -120,482 +120,6 @@ prevent having a large tree fall on your head. We will do this by combining
 street tree data with information on seismic hazard zones, and plotting the
 resulting information against the backdrop of San Francisco roadways.
 
-## GIS in R with `sf`
-
-The `sf` package is the primary package for vector GIS. To load `sf` into R.
-
-```
-library('sf')
-library('dplyr')
-```
-
-### Importing Data with `sf`
-
-We can import spatial vector data into R using the function `st_read()`. The
-`st_read()` function will import just about any type of explicitly spatial
-data. To get a list of all of the file types it will read, run `st_drivers`.
-This will list all of the different file types `sf` can read in, and will also 
-tell you if `sf` can write those file types.
-
-```
-streets <- st_read('data/raw/streetCenterlines.shp')
-streets
-```
-
-If we want to check to make sure the data looks how we expect, we can plot it
-using `st_geometry()` and `plot()`.
-
-```
-streets_geom <- st_geometry(streets)
-plot(streets_geom)
-```
-
-Our streets data does give us a general idea of what San Francisco looks like,
-but for visualizations it would be good to have an outline. Thankfully we have
-shoreline data as well.
-
-```
-shore <- st_read('data/raw/Shoreline.shp')
-plot(st_geometry(shore), col='skyblue', main='San Francisco Shoreline', border='darkblue')
-```
-
-In addition to shapefiles, `st_read()` also imports GeoJSONs, which is the file
-type of our seismic hazard zone data set.
-
-```
-hz <- st_read('data/raw/seismic_hazard_zones_san_francisco.geojson')
-```
-
-To visualize a data set using a column to provide color to polygons, select
-that column when plotting:
-
-```
-hz_title <- 'Seismic Hazard Zones by Hazard Type in San Francisco'
-plot(hz[,'hazard'], key.pos=1, main=hz_title)
-```
-
-
-#### Importing Tabular Data
-
-We can also read in non-spatial data (like CSVs) into R, using a variety of 
-functions. One of the most popular is `read.csv()`.
-
-```
-trees_df <- read.csv('data/raw/Street_Tree_Map.csv')
-head(trees_df)
-dim(trees_df)
-```
-
-### Data Conversion
-
-Sometimes we have data in one form, but we want to convert it to a different
-form. Our shoreline data is a polygon, but if we plot that, it will cover up
-anything we plot under it. For data we want to use as an outline, it is easier
-to store it using the (multi)linestring geometry instead of the polygon
-geometry. In `sf` we can convert between spatial data types using `st_cast`, and
-specify the geometry type using the `to` argument.
-
-```
-shoreline = st_cast(shore, 'MULTILINESTRING')
-```
-
-
-We can also convert non-spatial data, like our trees data set, to spatial data.
-To convert a data.frame to a `sf` object, we use the `st_as_sf()` function. I
-don't remember the inputs for `st_as_sf()`, so I can use the `?st_as_sf` to ask
-R.
-
-```
-trees <- st_as_sf(x=trees_df,
-                  coords=c('Longitude', 'Latitude'),
-                  crs=4326)
-```
-
-Huh, looks like there are some `NAs` in the lat/lon points. Let's remove those.
-
-```
-trees_df <- filter(trees_df, !is.na(Longitude))
-trees <- st_as_sf(x=trees_df,
-                  coords=c('Longitude', 'Latitude'),
-                  crs=4326)
-```
-
-Much better! Now we've got our tree data in the correct form, let's plot it.
-
-```
-trees_geom <- st_geometry(trees)
-plot(trees_geom)
-```
-
-Hmmm...Something doesn't look right. Lets add the outline of the US to see 
-if we can figure out what is going on...
-
-```
-usa <- rnaturalearth::ne_countries(country='united states of america')
-plot(st_geometry(usa))
-plot(trees_geom, add=TRUE)
-```
-
-Yikes, we've got trees in the ocean! This is definitely a problem. There are
-several ways to get rid of points are not within your area of study, but they
-all require that your data all has the same coordinate reference system (CRS).
-
-
-### Projecting Data in `sf`
- 
-Just like in desktop GIS, in R we need data layers to share a CRS in order to
-use them together. We can project `sf` objects into a new CRS using
-`st_transform()`. Since we are working in California, we will use the California
-Albers projection, which has a EPSG code of 3310. We can check to see what CRS
-our data layers have using `st_crs()`.
-
-```
-st_crs(streets)$input
-st_crs(hz)$input
-st_crs(trees)$input
-st_crs(shoreline)$input
-
-```
-
-It looks like our seismic hazard data is already in California Albers, but our
-street, shore, tree data need to be projected.
-
-```
-trees_ca <- st_transform(trees, crs=3310)
-streets_ca <- st_transform(streets, crs=3310)
-shoreline_ca <- st_transform(shoreline, crs=3310)
-
-```
-
-Much better! Now to get rid of those pesky ocean trees.
-
-
-### Data Filtering
-
-Probably the easiest way to remove outlandish data, is to clip/crop the data
-using another layer that has the extent you want. In our case we can use the 
-seismic hazard zones, since those are the only areas we care about.
-
-```
-trees_ca <- st_crop(trees_ca, hz)
-```
-
-> [!NOTE]
->
-> The `sf` package will often warn you that "attribute variables are assumed to
-> be spatially constant throughout all geometries". This is not an error
-> message! It is not even an indication that anything is wrong. All it is
-> telling you is that if you have a point, line, or polygon with an attribute,
-> hazard = 'landslide' for example, hazard will equal 'landslide' over the 
-> entire area of that geometry.
-
-
-If we plot both layers together, we can see that we've successfully gotten rid
-of our problematic trees. 
-
-```
-plot(st_geometry(hz), col='lightblue', main=hz_title)
-plot(st_geometry(trees_ca), col='darkgreen', pch='.', add=TRUE)
-```
-
-We also have some extraneous islands of the west coast of San Francisco in our
-shoreline data set that would be nice to remove, so we can crop `shore_ca` as 
-well.
-
-```
-shore_ca <- st_crop(shore_ca, hz)
-
-```
-
-#### A Function Interlude
-
-Since R is not primarily a GIS program, it does not provide us with automatic
-visual updates every time we create or modify a data layer. We have to do that
-ourselves using `plot()` (among other functions). Typing out two plot commands
-with all the arguments gets tedious, so let's create a function that will
-do it for us.
-
-```
-plot_trees <- function(geom_top, geom_bottom, poly_color='lightblue', ...) {
-  plot_title <- 'Street Trees in San Francisco'
-  plot(st_geometry(geom_bottom), col=poly_color, main=plot_title, extent=geom_top)
-  
-  plot(st_geometry(geom_top), add=TRUE, ...)
-  
-}
-
-```
-
-Now instead of writing two commands over and over again, we can write one,
-simpler, command.
-
-```
-plot_trees(trees_ca, hz, col='darkgreen', pch='.')
-```
-
-#### Back to filtering!
-
-If we take a look at the seismic hazard data, it actually contains two
-different kinds of hazards: liquefaction and landslide. While landslides are 
-very dangerous, liquefaction is the primary concern in terms of trees falling
-over.
-
-```
-unique(hz$hazard)
-```
-
-So, lets filter the seismic hazard data set (`hz`) to only include liquefaction
-hazard polygons. Our `hz` object is a `data.frame` in addition to being an `sf`
-object. This means we can filter it like we would a regular `data.frame`. 
-
-```
-hz_liquid <- hz[hz$hazard == 'liquefaction', ]
-plot_trees(trees_ca, hz_liquid, col='darkgreen', pch='.')
-
-```
-
-> [!NOTE]
->
-> There are many ways of filtering data in R. So far we have seen two of them:
-> `filter` from the `dplyr` package, and using `[]` indexing. However, if you
-> prefer another method of filtering data.frames, feel free to use that. 
-
-
-Additionally, we really only need to avoid big trees. Thankfully the street tree
-data set includes the tree diameter at breast height (DBH), a standard way of
-measuring tree size. Any time we work with a field from a large data set, it is
-a good idea to get a sense of what values that field takes on before trying to
-do anything with it. Some examples of functions that do this are `summary()` and
-`hist()`.
-
-```
-summary(trees_ca$DBH)
-hist(trees_ca$DBH)
-```
-
-Well we definitely need to remove the 39,000 trees with missing DBH values.
-Additionally, the largest tree in the world (The Tule Tree) is only 384 inches
-in diameter, so let's also assume that diameters greater than 384 are errors and
-remove those as well. Finally, it seems prudent to avoid trees with a diameter
-of 4ft (or more), so we will filter out trees with DBHs of less than 48in as not
-large enough to worry about.
-
-```
-is_big <- !is.na(trees_ca$DBH) & trees_ca$DBH<384 & trees_ca$DBH>=48
-trees_big <- trees_ca[is_big, ]
-plot_trees(trees_big, hz_liquid, col='darkgreen', pch=16, cex=0.5)
-
-```
-
-### Spatial Joins
-
-We still have a lot of the trees in the data set we don't care about,
-namely, all the trees that aren't in a liquefaction zone. We can combine
-these two data sets using a spatial join. The `st_intersection()` function
-gives us data from where two layers overlap. However, it only includes the 
-geometries from the first data layer.
-
-```
-trees_hz <- st_intersection(trees_big, hz_liquid)
-names(trees_big)
-names(hz_liquid)
-names(trees_hz)
-trees_hz
-```
-
-If we plot them, we can see that our new trees data set only contains trees in
-the liquefaction hazard zones.
-
-```
-plot_trees(trees_hz, hz_liquid, col='darkred', pch=16, cex=0.7)
-
-```
-
-### Geoprocessing
-
-Now it's not enough to know where these large trees are. We would really like to
-avoid any area within 200ft of them. Since the unit of measure for California
-Albers is meters (see `st_crs(trees_hz)`), we want to avoid anywhere within 62m
-of the danger trees. We can create a layer representing this data using
-`st_buffer()`.
-
-```
-danger_zones = st_buffer(trees_hz, dist=62)
-plot_trees(danger_zones, hz_liquid, col='red', border='darkred', pch=16, cex=0.7)
-```
-
-This new data layer contains the information want. However, there are a lot of
-overlapping polygons that make it difficult to tell what is going on visually.
-We can combine multiple polygons into a single polygon using `st_union()`.
-
-```
-danger_zone = st_union(danger_zones)
-plot_trees(danger_zone, hz_liquid, col='red', border='darkred', pch=16, cex=0.7)
-```
-
-If we take a look at the data type though, it is no longer a data.frame. 
-
-```
-class(danger_zone)
-```
-
-This is going to be be a problem later on. Thankfully, there are other ways ways
-of combining geometries. 
-
-```
-danger_zone <- group_by(danger_zones, hazard) |>
-  summarize()
-class(danger_zone)
-```
-
-We can also combine the liquefaction zones, since we don't need information
-about individual zones.
-
-```
-liquid_zone = st_union(hz_liquid)
-plot_trees(danger_zone, liquid_zone, col='red', border='darkred', pch=16, cex=0.7)
-```
-
-We are going to need a way to label these areas in liquefaction zones near
-trees as dangerous, and we can do that by creating a new field in the 
-`danger_zone` object called `status`. With data.frames we can create new
-fields by using the dollar sign ($).
-
-```
-danger_zone$status <- 'Danger!'
-```
-
-### Even More Spatial Joins
-
-While `st_intersection()` is a useful function, it only does one type of spatial
-join. However, The `sf` function to do spatial joins is `st_join()`.
-
-The `st_join()` function is a very powerful function that can do a lot of
-different things depending on the value of various arguments. In this case we
-are going to use it to label the streets that overlap with our danger zones with
-the "Danger!" status. The join type will be the same as last time
-(st_intersects), but we will also specify `left=TRUE`. This means include all of
-the geometries and observations from the data layer, but only include data from
-the second layer in the cases where it is related to the first, and none of the
-geometries from the second layer.
-
-```
-danger_streets <- st_join(streets_ca, danger_zone, join=st_intersects,
-                          left=TRUE) 
-```
-
-The options for the `join` argument (aka relations) have very specific
-definitions, which may not align with the colloquial definitions of those words.
-If you what to know what the definition of a particular relation is, or if you
-are trying to figure out why your spatial join isn't working how you expected it
-to, the Wikipedia article on the [DE-9IM model][de9im] provides in depth details
-on each of the options.
-
-[de9im]: https://en.wikipedia.org/wiki/DE-9IM
-
-
-Now if we look at the `status` column in our `danger_streets` data.frame, there
-are 328 streets with the status "Danger!" and 15,913 streets with missing data.
-This is a problem, because we plot the `status` field, the streets with NA 
-values will not be plotted.
-
-```
-table(danger_streets$status, exclude = FALSE)
-```
-
-We can fill in those missing values with text that indicates these streets are
-okay to walk down.
-
-```
-danger_streets[is.na(danger_streets$status), 'status'] <- 'Have a nice walk :)'
-```
-
-### Plotting
-
-We've already done some plotting in R using the plot function, but now we
-finally have all of the data we need to create a map of all the places we should
-avoid during an earthquake if we don't want large tree to fall on our head.
-
-```
-danger_title <- 'Street Safety Status Under Seismic Hazards'
-plot(danger_streets[,'status'], key.pos = 1, main=danger_title)
-```
-
-Those are some pretty horrendous colors. Let's specify some better ones. We've
-used the `col` argument before, but that just colors the entire geometry with
-one color. And we want to color the streets based on their status. If
-we look at the help file for `plot.sf`, we see there is an argument called 
-`pal`, that allows us to specify a "palette function". This is a function that
-
-```
-?plot.sf
-```
-
-```
-status_pal = function(n) {
-  status_colors <- c('#ba001e', 'grey50')
-  return(status_colors)
-}
-
-```
-
-```
-#with the legend
-par(mar=c(1,1,2,1))
-plot(danger_streets[,'status'], pal = status_pal, key.pos = 1, main=danger_title)
-
-```
-
-
-```
-#with the shoreline
-par(mar=c(4,1,2,1))
-danger_title <- 'Street Safety Status Under Seismic Hazards'
-plot(danger_streets[,'status'], pal = status_pal, key.pos = 1, main=danger_title)
-plot(st_geometry(shoreline_ca), col='darkblue', lwd=2,  add=TRUE)
-
-
-```
-
-### Writing Data
-
-If you want to be able to recreate this map, but don't want to have to go
-through the data processing steps again, it can be helpful to save the data sets
-you created in the process. The function to do this in the `sf` package is
-`st_write()`. This is the equivalent of the "Make Permanent" functionality in
-QGIS.
-
-I'm going to save my data sets in a folder called "processed" in my data folder,
-so that I know they have gone through data processing. I can create the folder
-automatically in R using `dir.create()`.
-
-```
-dir.create('data/processed')
-```
-
-When using `st_write()` you have to specify which type of file to create using
-the `driver` argument. To see a list of options for this argument, run 
-
-```
-st_drivers()
-```
-
-Let's create a geojson file. The driver for that is 'GeoJSON'. 
-
-```
-filename <- 'data/processed/street_danger_classification_san_francisco.geojson'
-st_write(danger_streets, filename, driver='GeoJSON', delete_dsn=TRUE)
-```
-
-We can also create a shapefile.
-
-```
-shp_filename <- 'data/processed/san_francisco_shore_line.shp'
-st_write(shoreline_ca, shp_filename, delete_dsn=TRUE)
-
-```
-
-
 ## GIS in R with `terra`
 
 The `terra` package is the primary GIS package in R for working with rasters.
@@ -1085,6 +609,482 @@ need to save the polygon representation of the San Francisco shoreline.
 ```
 shore_filename <- 'data/processed/san_francisco_shore_poly.geojson'
 writeVector(shore_ca, shore_filename, filetype='GeoJSON', overwrite=TRUE)
+
+```
+
+
+## GIS in R with `sf`
+
+The `sf` package is the primary package for vector GIS. To load `sf` into R.
+
+```
+library('sf')
+library('dplyr')
+```
+
+### Importing Data with `sf`
+
+We can import spatial vector data into R using the function `st_read()`. The
+`st_read()` function will import just about any type of explicitly spatial
+data. To get a list of all of the file types it will read, run `st_drivers`.
+This will list all of the different file types `sf` can read in, and will also 
+tell you if `sf` can write those file types.
+
+```
+streets <- st_read('data/raw/streetCenterlines.shp')
+streets
+```
+
+If we want to check to make sure the data looks how we expect, we can plot it
+using `st_geometry()` and `plot()`.
+
+```
+streets_geom <- st_geometry(streets)
+plot(streets_geom)
+```
+
+Our streets data does give us a general idea of what San Francisco looks like,
+but for visualizations it would be good to have an outline. Thankfully we have
+shoreline data as well.
+
+```
+shore <- st_read('data/raw/Shoreline.shp')
+plot(st_geometry(shore), col='skyblue', main='San Francisco Shoreline', border='darkblue')
+```
+
+In addition to shapefiles, `st_read()` also imports GeoJSONs, which is the file
+type of our seismic hazard zone data set.
+
+```
+hz <- st_read('data/raw/seismic_hazard_zones_san_francisco.geojson')
+```
+
+To visualize a data set using a column to provide color to polygons, select
+that column when plotting:
+
+```
+hz_title <- 'Seismic Hazard Zones by Hazard Type in San Francisco'
+plot(hz[,'hazard'], key.pos=1, main=hz_title)
+```
+
+
+#### Importing Tabular Data
+
+We can also read in non-spatial data (like CSVs) into R, using a variety of 
+functions. One of the most popular is `read.csv()`.
+
+```
+trees_df <- read.csv('data/raw/Street_Tree_Map.csv')
+head(trees_df)
+dim(trees_df)
+```
+
+### Data Conversion
+
+Sometimes we have data in one form, but we want to convert it to a different
+form. Our shoreline data is a polygon, but if we plot that, it will cover up
+anything we plot under it. For data we want to use as an outline, it is easier
+to store it using the (multi)linestring geometry instead of the polygon
+geometry. In `sf` we can convert between spatial data types using `st_cast`, and
+specify the geometry type using the `to` argument.
+
+```
+shoreline = st_cast(shore, 'MULTILINESTRING')
+```
+
+
+We can also convert non-spatial data, like our trees data set, to spatial data.
+To convert a data.frame to a `sf` object, we use the `st_as_sf()` function. I
+don't remember the inputs for `st_as_sf()`, so I can use the `?st_as_sf` to ask
+R.
+
+```
+trees <- st_as_sf(x=trees_df,
+                  coords=c('Longitude', 'Latitude'),
+                  crs=4326)
+```
+
+Huh, looks like there are some `NAs` in the lat/lon points. Let's remove those.
+
+```
+trees_df <- filter(trees_df, !is.na(Longitude))
+trees <- st_as_sf(x=trees_df,
+                  coords=c('Longitude', 'Latitude'),
+                  crs=4326)
+```
+
+Much better! Now we've got our tree data in the correct form, let's plot it.
+
+```
+trees_geom <- st_geometry(trees)
+plot(trees_geom)
+```
+
+Hmmm...Something doesn't look right. Lets add the outline of the US to see 
+if we can figure out what is going on...
+
+```
+usa <- rnaturalearth::ne_countries(country='united states of america')
+plot(st_geometry(usa))
+plot(trees_geom, add=TRUE)
+```
+
+Yikes, we've got trees in the ocean! This is definitely a problem. There are
+several ways to get rid of points are not within your area of study, but they
+all require that your data all has the same coordinate reference system (CRS).
+
+
+### Projecting Data in `sf`
+ 
+Just like in desktop GIS, in R we need data layers to share a CRS in order to
+use them together. We can project `sf` objects into a new CRS using
+`st_transform()`. Since we are working in California, we will use the California
+Albers projection, which has a EPSG code of 3310. We can check to see what CRS
+our data layers have using `st_crs()`.
+
+```
+st_crs(streets)$input
+st_crs(hz)$input
+st_crs(trees)$input
+st_crs(shoreline)$input
+
+```
+
+It looks like our seismic hazard data is already in California Albers, but our
+street, shore, tree data need to be projected.
+
+```
+trees_ca <- st_transform(trees, crs=3310)
+streets_ca <- st_transform(streets, crs=3310)
+shoreline_ca <- st_transform(shoreline, crs=3310)
+
+```
+
+Much better! Now to get rid of those pesky ocean trees.
+
+
+### Data Filtering
+
+Probably the easiest way to remove outlandish data, is to clip/crop the data
+using another layer that has the extent you want. In our case we can use the 
+seismic hazard zones, since those are the only areas we care about.
+
+```
+trees_ca <- st_crop(trees_ca, hz)
+```
+
+> [!NOTE]
+>
+> The `sf` package will often warn you that "attribute variables are assumed to
+> be spatially constant throughout all geometries". This is not an error
+> message! It is not even an indication that anything is wrong. All it is
+> telling you is that if you have a point, line, or polygon with an attribute,
+> hazard = 'landslide' for example, hazard will equal 'landslide' over the 
+> entire area of that geometry.
+
+
+If we plot both layers together, we can see that we've successfully gotten rid
+of our problematic trees. 
+
+```
+plot(st_geometry(hz), col='lightblue', main=hz_title)
+plot(st_geometry(trees_ca), col='darkgreen', pch='.', add=TRUE)
+```
+
+We also have some extraneous islands of the west coast of San Francisco in our
+shoreline data set that would be nice to remove, so we can crop `shore_ca` as 
+well.
+
+```
+shore_ca <- st_crop(shore_ca, hz)
+
+```
+
+#### A Function Interlude
+
+Since R is not primarily a GIS program, it does not provide us with automatic
+visual updates every time we create or modify a data layer. We have to do that
+ourselves using `plot()` (among other functions). Typing out two plot commands
+with all the arguments gets tedious, so let's create a function that will
+do it for us.
+
+```
+plot_trees <- function(geom_top, geom_bottom, poly_color='lightblue', ...) {
+  plot_title <- 'Street Trees in San Francisco'
+  plot(st_geometry(geom_bottom), col=poly_color, main=plot_title, extent=geom_top)
+  
+  plot(st_geometry(geom_top), add=TRUE, ...)
+  
+}
+
+```
+
+Now instead of writing two commands over and over again, we can write one,
+simpler, command.
+
+```
+plot_trees(trees_ca, hz, col='darkgreen', pch='.')
+```
+
+#### Back to filtering!
+
+If we take a look at the seismic hazard data, it actually contains two
+different kinds of hazards: liquefaction and landslide. While landslides are 
+very dangerous, liquefaction is the primary concern in terms of trees falling
+over.
+
+```
+unique(hz$hazard)
+```
+
+So, lets filter the seismic hazard data set (`hz`) to only include liquefaction
+hazard polygons. Our `hz` object is a `data.frame` in addition to being an `sf`
+object. This means we can filter it like we would a regular `data.frame`. 
+
+```
+hz_liquid <- hz[hz$hazard == 'liquefaction', ]
+plot_trees(trees_ca, hz_liquid, col='darkgreen', pch='.')
+
+```
+
+> [!NOTE]
+>
+> There are many ways of filtering data in R. So far we have seen two of them:
+> `filter` from the `dplyr` package, and using `[]` indexing. However, if you
+> prefer another method of filtering data.frames, feel free to use that. 
+
+
+Additionally, we really only need to avoid big trees. Thankfully the street tree
+data set includes the tree diameter at breast height (DBH), a standard way of
+measuring tree size. Any time we work with a field from a large data set, it is
+a good idea to get a sense of what values that field takes on before trying to
+do anything with it. Some examples of functions that do this are `summary()` and
+`hist()`.
+
+```
+summary(trees_ca$DBH)
+hist(trees_ca$DBH)
+```
+
+Well we definitely need to remove the 39,000 trees with missing DBH values.
+Additionally, the largest tree in the world (The Tule Tree) is only 384 inches
+in diameter, so let's also assume that diameters greater than 384 are errors and
+remove those as well. Finally, it seems prudent to avoid trees with a diameter
+of 4ft (or more), so we will filter out trees with DBHs of less than 48in as not
+large enough to worry about.
+
+```
+is_big <- !is.na(trees_ca$DBH) & trees_ca$DBH<384 & trees_ca$DBH>=48
+trees_big <- trees_ca[is_big, ]
+plot_trees(trees_big, hz_liquid, col='darkgreen', pch=16, cex=0.5)
+
+```
+
+### Spatial Joins
+
+We still have a lot of the trees in the data set we don't care about,
+namely, all the trees that aren't in a liquefaction zone. We can combine
+these two data sets using a spatial join. The `st_intersection()` function
+gives us data from where two layers overlap. However, it only includes the 
+geometries from the first data layer.
+
+```
+trees_hz <- st_intersection(trees_big, hz_liquid)
+names(trees_big)
+names(hz_liquid)
+names(trees_hz)
+trees_hz
+```
+
+If we plot them, we can see that our new trees data set only contains trees in
+the liquefaction hazard zones.
+
+```
+plot_trees(trees_hz, hz_liquid, col='darkred', pch=16, cex=0.7)
+
+```
+
+### Geoprocessing
+
+Now it's not enough to know where these large trees are. We would really like to
+avoid any area within 200ft of them. Since the unit of measure for California
+Albers is meters (see `st_crs(trees_hz)`), we want to avoid anywhere within 62m
+of the danger trees. We can create a layer representing this data using
+`st_buffer()`.
+
+```
+danger_zones = st_buffer(trees_hz, dist=62)
+plot_trees(danger_zones, hz_liquid, col='red', border='darkred', pch=16, cex=0.7)
+```
+
+This new data layer contains the information want. However, there are a lot of
+overlapping polygons that make it difficult to tell what is going on visually.
+We can combine multiple polygons into a single polygon using `st_union()`.
+
+```
+danger_zone = st_union(danger_zones)
+plot_trees(danger_zone, hz_liquid, col='red', border='darkred', pch=16, cex=0.7)
+```
+
+If we take a look at the data type though, it is no longer a data.frame. 
+
+```
+class(danger_zone)
+```
+
+This is going to be be a problem later on. Thankfully, there are other ways ways
+of combining geometries. 
+
+```
+danger_zone <- group_by(danger_zones, hazard) |>
+  summarize()
+class(danger_zone)
+```
+
+We can also combine the liquefaction zones, since we don't need information
+about individual zones.
+
+```
+liquid_zone = st_union(hz_liquid)
+plot_trees(danger_zone, liquid_zone, col='red', border='darkred', pch=16, cex=0.7)
+```
+
+We are going to need a way to label these areas in liquefaction zones near
+trees as dangerous, and we can do that by creating a new field in the 
+`danger_zone` object called `status`. With data.frames we can create new
+fields by using the dollar sign ($).
+
+```
+danger_zone$status <- 'Danger!'
+```
+
+### Even More Spatial Joins
+
+While `st_intersection()` is a useful function, it only does one type of spatial
+join. However, The `sf` function to do spatial joins is `st_join()`.
+
+The `st_join()` function is a very powerful function that can do a lot of
+different things depending on the value of various arguments. In this case we
+are going to use it to label the streets that overlap with our danger zones with
+the "Danger!" status. The join type will be the same as last time
+(st_intersects), but we will also specify `left=TRUE`. This means include all of
+the geometries and observations from the data layer, but only include data from
+the second layer in the cases where it is related to the first, and none of the
+geometries from the second layer.
+
+```
+danger_streets <- st_join(streets_ca, danger_zone, join=st_intersects,
+                          left=TRUE) 
+```
+
+The options for the `join` argument (aka relations) have very specific
+definitions, which may not align with the colloquial definitions of those words.
+If you what to know what the definition of a particular relation is, or if you
+are trying to figure out why your spatial join isn't working how you expected it
+to, the Wikipedia article on the [DE-9IM model][de9im] provides in depth details
+on each of the options.
+
+[de9im]: https://en.wikipedia.org/wiki/DE-9IM
+
+
+Now if we look at the `status` column in our `danger_streets` data.frame, there
+are 328 streets with the status "Danger!" and 15,913 streets with missing data.
+This is a problem, because we plot the `status` field, the streets with NA 
+values will not be plotted.
+
+```
+table(danger_streets$status, exclude = FALSE)
+```
+
+We can fill in those missing values with text that indicates these streets are
+okay to walk down.
+
+```
+danger_streets[is.na(danger_streets$status), 'status'] <- 'Have a nice walk :)'
+```
+
+### Plotting
+
+We've already done some plotting in R using the plot function, but now we
+finally have all of the data we need to create a map of all the places we should
+avoid during an earthquake if we don't want large tree to fall on our head.
+
+```
+danger_title <- 'Street Safety Status Under Seismic Hazards'
+plot(danger_streets[,'status'], key.pos = 1, main=danger_title)
+```
+
+Those are some pretty horrendous colors. Let's specify some better ones. We've
+used the `col` argument before, but that just colors the entire geometry with
+one color. And we want to color the streets based on their status. If
+we look at the help file for `plot.sf`, we see there is an argument called 
+`pal`, that allows us to specify a "palette function". This is a function that
+
+```
+?plot.sf
+```
+
+```
+status_pal = function(n) {
+  status_colors <- c('#ba001e', 'grey50')
+  return(status_colors)
+}
+
+```
+
+```
+#with the legend
+par(mar=c(1,1,2,1))
+plot(danger_streets[,'status'], pal = status_pal, key.pos = 1, main=danger_title)
+
+```
+
+
+```
+#with the shoreline
+par(mar=c(4,1,2,1))
+danger_title <- 'Street Safety Status Under Seismic Hazards'
+plot(danger_streets[,'status'], pal = status_pal, key.pos = 1, main=danger_title)
+plot(st_geometry(shoreline_ca), col='darkblue', lwd=2,  add=TRUE)
+
+
+```
+
+### Writing Data
+
+If you want to be able to recreate this map, but don't want to have to go
+through the data processing steps again, it can be helpful to save the data sets
+you created in the process. The function to do this in the `sf` package is
+`st_write()`. This is the equivalent of the "Make Permanent" functionality in
+QGIS.
+
+I'm going to save my data sets in a folder called "processed" in my data folder,
+so that I know they have gone through data processing. I can create the folder
+automatically in R using `dir.create()`.
+
+```
+dir.create('data/processed')
+```
+
+When using `st_write()` you have to specify which type of file to create using
+the `driver` argument. To see a list of options for this argument, run 
+
+```
+st_drivers()
+```
+
+Let's create a geojson file. The driver for that is 'GeoJSON'. 
+
+```
+filename <- 'data/processed/street_danger_classification_san_francisco.geojson'
+st_write(danger_streets, filename, driver='GeoJSON', delete_dsn=TRUE)
+```
+
+We can also create a shapefile.
+
+```
+shp_filename <- 'data/processed/san_francisco_shore_line.shp'
+st_write(shoreline_ca, shp_filename, delete_dsn=TRUE)
 
 ```
 
