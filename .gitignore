@@ -1,6 +1,7 @@
 # Data Files
 *.html
 data/
+plots/
 
 # History files
 .Rhistory
