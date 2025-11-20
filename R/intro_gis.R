@@ -61,6 +61,13 @@ plot(trees_ca, col='darkgreen', pch='.', add=TRUE)
 shore_ca <- crop(shore_ca, hz_ext)
 shoreline_ca <- crop(shoreline_ca, hz_ext)
 
+south_ext <- ext(-122.6, -122.39346, 37.6, 37.71)
+south <- as.polygons(south_ext, crs=crs(streets))
+south_ca <- project(south, hz)
+
+better_shoreline <- erase(shoreline_ca, south_ca)
+plot(better_shoreline)
+
 
 # Function Interlude ------------------------------------------------------
 
@@ -100,8 +107,56 @@ names(hz_liquid)
 names(trees_hz)
 trees_hz
 
-trees_hz <- trees_big * hz_liquid
 plot_trees(trees_hz, hz_liquid, col='darkred', pch=16, cex=0.7)
+
+danger_zones = buffer(trees_hz, width=62)
+plot_trees(danger_zones, hz_liquid, col='red', border='darkred', pch=16, cex=0.7)
+
+danger_zone = aggregate(danger_zones)
+plot_trees(danger_zone, hz_liquid, col='red', border='darkred', pch=16, cex=0.7)
+
+hazard_zone = aggregate(hz, by='hazard')
+liquid_zone = hazard_zone[ hazard_zone$hazard == 'liquefaction', ]
+plot_trees(danger_zone, liquid_zone, col='red', border='darkred', pch=16, cex=0.7)
+
+
+# Spatial Relations -------------------------------------------------------
+
+in_danger_zone <- is.related(streets_ca, danger_zone, relation='intersects')
+streets_ca$in_danger <- in_danger_zone
+
+head(streets_ca)
+
+streets_ca$status <- ifelse(streets_ca$in_danger, 'Danger!', 'Have a nice walk :)')
+head(streets_ca)
+
+
+# Plotting ----------------------------------------------------------------
+
+danger_title <- 'Street Safety Status Under Seismic Hazards'
+plot(streets_ca, 'status', main=danger_title, axes=FALSE)
+
+plot(streets_ca, 'status', col=c('#ba001e', 'grey50'),  main=danger_title, axes=FALSE)
+
+plot(streets_ca, 'status', col=c('#ba001e', 'grey50'),  main=danger_title, axes=FALSE)
+plot(shore_ca, col=NULL, border=NULL, add=TRUE)
+plot(better_shoreline, col='darkblue', lwd=2,  add=TRUE)
+
+# Write Data --------------------------------------------------------------
+
+dir.create('data/processed')
+
+gdal(drivers=TRUE)
+
+
+street_filename <- 'data/processed/street_classification_san_francisco.geojson'
+writeVector(streets_ca, street_filename, filetype='GeoJSON', overwrite=TRUE)
+
+sl_filename <- 'data/processed/san_francisco_shore_line.shp'
+writeVector(better_shoreline, sl_filename, filetype='ESRI Shapefile', overwrite=TRUE)
+
+shore_filename <- 'data/processed/san_francisco_shore_poly.geojson'
+writeVector(shore_ca, shore_filename, filetype='GeoJSON', overwrite=TRUE)
 
 
 # Extra -------------------------------------------------------------------
@@ -118,10 +173,10 @@ hz_ll = project(hz, coast_dem)
 
 
 
-hz_ll <- hz_ll[hz_ll$hazard == 'landslide', ]
-hz_line <- as.lines(hz_ll)
+hz_land <- hz_ll[hz_ll$hazard == 'landslide', ]
+hz_line <- as.lines(hz_land)
 
-sf_dem <- crop(coast_dem, hz_ll)
+sf_dem <- crop(coast_dem, hz_land)
 
 
 
@@ -134,28 +189,45 @@ iplot <- plet(sf_dem)
 lines(iplot, hz_line, col='white', lwd=1.5)
 
 
-landslide_agg = aggregate(hz_ll, by='quad_name')
-landslide_agg$ID <- 1:nrow(landslide_agg)
+# Elevation Calculations --------------------------------------------------
 
 sf_dem2 <- sf_dem*2
 
-elev_values <- extract(sf_dem2, hz_ll)
+names(sf_dem2) <- 'landslide_dist'
 
-diff_range = function(x) {
+landslide_range = function(x) {
   if (all(is.na(x))) {
     d <- 0
   } else {
     d <- diff(range(x, na.rm=TRUE))
   }
   
+  if (d==0) {
+    d <- 10
+  }
+  
   return(d)
 }
 
-elev_range <- tapply(elev_values$srtm_12_05, elev_values$ID, diff_range) |>
-  as.integer()
+hz_land = extract(sf_dem2, hz_land, fun=landslide_range, bind=TRUE)
 
-buff_dist = elev_range
-buff_dist[buff_dist==0] <- 10
+
+
+hz_buff_list = lapply(seq_along(hz_land), function(i) {
+  buffer(hz_land[i, ], width = hz_land$landslide_dist[i])
+})
+
+hz_buff = do.call('rbind', hz_buff_list)
+
+hz_buff = aggregate(hz_buff)
+
+hz_buff_line = as.lines(hz_buff)
+
+# More plot ---------------------------------------------------------------
+
+iplot <- plet(sf_dem)
+iplot <- lines(iplot, hz_line, col='white', lwd=1)
+lines(iplot, hz_buff_line, col='orange', lwd=1.5)
 
 
 ########################## RESTART R HERE #################################
