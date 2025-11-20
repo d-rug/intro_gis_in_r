@@ -1,17 +1,12 @@
 # Intro to GIS in R
-An introduction to doing Geographic Information Science in R. This workshop
-is (roughly speaking) the R version of [Next Steps in QGIS][ns_qgis]. We will 
-be covering:
 
-  - The tools R has to to geospatial work
-  - Importing (reading) data into R
-  - Basic plotting
-  - (re)Projecting data
-  - Filtering data
-  - Regular and Spatial Joins
-  - Geoprocessing Tools
-  - Raster Math
-  - Exporting (writing) data
+## Workshop Description
+
+Intro to GIS in R is a workshop designed to get you started doing Geographic
+Information Science (GIS) in R. It is, roughly speaking, the R version of 
+[Next Steps in QGIS][ns_qgis]. We will cover setting up R for GIS, getting data
+in and out of R, data transformation, filtering, and geoprocessing tools, as
+well as some basic mapping.
 
 This workshop assumes you have some experience with R. If you are new to R or
 would like to brush up on your skills, the [DataLab R Basics Reader][rbasics] is
@@ -56,12 +51,16 @@ with RStudio, but you can accomplish the same thing using the R GUI.
 
 
 Next we need to download the data. The data for this workshop is stored on Box
-and can be downloaded using this [link][box]. Once you have downloaded the data,
-unzip the folder and move it into the `data/raw` folder in your project
-directory.
-
+and can be downloaded using this [link][box2]. If you used want the data from
+the live workshop ([code here][live_code]), use this [link][box]. Once you have
+downloaded the data, unzip the folder and move it into the `data/raw` folder in
+your project directory. There is additional example code using rasters in
+[R/intro_gis.R][code].
 
 [box]: https://ucdavis.app.box.com/s/cnlz6ejmje4qgf7z80h7ygbwydc65kkm
+[box2]: https://ucdavis.box.com/s/5c89jctll4fkyety78jinm2xg59u5cr8
+[live_code]: https://github.com/d-rug/intro_gis_in_r/blob/main/R/intro_gis_in_R_live.R
+[code]: https://github.com/d-rug/intro_gis_in_r/blob/main/R/intro_gis.R
 
 #### Packages
 R is not natively a GIS program. However, enterprising individuals and groups
